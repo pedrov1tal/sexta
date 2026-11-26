@@ -1,5 +1,4 @@
 from datetime import date, datetime, time, timezone
-from enum import Enum
 
 from sqlalchemy import (
     Boolean,
@@ -19,23 +18,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.domain.enums import ChecklistType, ExecutionStatus
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class ChecklistType(str, Enum):
-    OPENING = "opening"
-    OPERATION = "operation"
-    CLOSING = "closing"
-
-
-class ExecutionStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    OVERDUE = "overdue"
 
 
 class Checklist(Base):

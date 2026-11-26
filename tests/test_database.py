@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database.base import Base
-from app.database.models import ChecklistType, ExecutionStatus
+from app.domain.enums import ChecklistType, ExecutionStatus
 from app.database.repositories import (
     create_checklist,
     create_checklist_execution,

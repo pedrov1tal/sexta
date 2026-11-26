@@ -3,11 +3,10 @@ from datetime import date, datetime, time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.enums import ChecklistType, ExecutionStatus
 from app.database.models import (
     Checklist,
     ChecklistExecution,
-    ChecklistType,
-    ExecutionStatus,
     NotificationLog,
     Task,
     TaskExecution,
@@ -41,12 +40,53 @@ def get_checklist(session: Session, checklist_id: int) -> Checklist | None:
     return session.get(Checklist, checklist_id)
 
 
+def get_task(session: Session, task_id: int) -> Task | None:
+    return session.get(Task, task_id)
+
+
+def get_checklist_execution(
+    session: Session, execution_id: int
+) -> ChecklistExecution | None:
+    return session.get(ChecklistExecution, execution_id)
+
+
+def get_task_execution(
+    session: Session, execution_id: int, task_id: int
+) -> TaskExecution | None:
+    statement = select(TaskExecution).where(
+        TaskExecution.execution_id == execution_id,
+        TaskExecution.task_id == task_id,
+    )
+    return session.scalar(statement)
+
+
 def list_checklists(
     session: Session, *, active_only: bool = False
 ) -> list[Checklist]:
     statement = select(Checklist).order_by(Checklist.id)
     if active_only:
         statement = statement.where(Checklist.is_active.is_(True))
+    return list(session.scalars(statement).all())
+
+
+def list_tasks(session: Session, checklist_id: int) -> list[Task]:
+    statement = (
+        select(Task)
+        .where(Task.checklist_id == checklist_id)
+        .order_by(Task.position, Task.id)
+    )
+    return list(session.scalars(statement).all())
+
+
+def list_checklist_executions(
+    session: Session, *, skip: int = 0, limit: int = 100
+) -> list[ChecklistExecution]:
+    statement = (
+        select(ChecklistExecution)
+        .order_by(ChecklistExecution.execution_date.desc(), ChecklistExecution.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     return list(session.scalars(statement).all())
 
 
@@ -69,6 +109,18 @@ def create_task(
     session.add(task)
     session.flush()
     return task
+
+
+def create_task_executions(
+    session: Session, *, execution_id: int, task_ids: list[int]
+) -> list[TaskExecution]:
+    task_executions = [
+        TaskExecution(execution_id=execution_id, task_id=task_id)
+        for task_id in task_ids
+    ]
+    session.add_all(task_executions)
+    session.flush()
+    return task_executions
 
 
 def create_checklist_execution(
