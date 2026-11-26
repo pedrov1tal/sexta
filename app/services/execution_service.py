@@ -9,7 +9,6 @@ from app.database.models import ChecklistExecution, utc_now
 from app.domain.enums import ExecutionStatus
 from app.database.repositories import (
     create_checklist_execution,
-    create_notification_log,
     create_task_executions,
     get_checklist,
     get_checklist_execution,
@@ -18,6 +17,11 @@ from app.database.repositories import (
     list_checklist_executions,
 )
 from app.services.exceptions import ResourceConflictError, ResourceNotFoundError
+from app.services.notification_service import (
+    queue_execution_completed,
+    queue_execution_overdue,
+    queue_execution_started,
+)
 
 
 def start_checklist_execution(
@@ -68,6 +72,13 @@ def start_checklist_execution(
                 task_ids=[task.id for task in tasks],
             )
             refresh_execution_status(session, execution, started_at)
+            queue_execution_started(
+                session, execution, settings.operation_timezone
+            )
+            if execution.status is ExecutionStatus.COMPLETED:
+                queue_execution_completed(
+                    session, execution, settings.operation_timezone
+                )
     except IntegrityError as error:
         raise ResourceConflictError(
             "Já existe uma execução desse checklist nesta data."
@@ -116,7 +127,9 @@ def refresh_execution_status(
         execution.status = ExecutionStatus.COMPLETED
         execution.completed_at = now
         execution.updated_at = now
-        return False
+        return queue_execution_completed(
+            session, execution, settings.operation_timezone
+        )
 
     deadline = _execution_deadline(execution)
     if (
@@ -126,19 +139,7 @@ def refresh_execution_status(
     ):
         execution.status = ExecutionStatus.OVERDUE
         execution.updated_at = now
-        pending_required = sum(
-            not task_execution.is_completed and task_execution.task.is_required
-            for task_execution in task_executions
-        )
-        create_notification_log(
-            session,
-            execution_id=execution.id,
-            message=(
-                f"Execução atrasada do checklist '{execution.checklist.title}': "
-                f"{pending_required} tarefa(s) obrigatória(s) pendente(s)."
-            ),
-            status="pending",
-        )
+        queue_execution_overdue(session, execution)
         return True
     return False
 
@@ -178,6 +179,7 @@ def complete_execution_task(
             raise ResourceConflictError("A execução já foi concluída.")
         now = utc_now()
         refresh_execution_status(session, execution, now)
+        was_completed = execution.status is ExecutionStatus.COMPLETED
         if not task_execution.is_completed:
             task_execution.is_completed = True
             task_execution.completed_at = now
@@ -192,4 +194,8 @@ def complete_execution_task(
             execution.status = ExecutionStatus.COMPLETED
             execution.completed_at = now
             execution.updated_at = now
+            if not was_completed:
+                queue_execution_completed(
+                    session, execution, settings.operation_timezone
+                )
     return execution

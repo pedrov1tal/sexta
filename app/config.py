@@ -1,4 +1,5 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import time
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,12 @@ class Settings(BaseSettings):
     admin_api_key: SecretStr = SecretStr("")
     operation_timezone: str = "America/Sao_Paulo"
     automation_interval_minutes: int = Field(default=1, ge=1)
+    telegram_bot_token: SecretStr = SecretStr("")
+    telegram_chat_id: str = ""
+    telegram_request_timeout_seconds: float = Field(default=10.0, gt=0)
+    telegram_retry_attempts: int = Field(default=3, ge=1)
+    telegram_retry_delay_seconds: float = Field(default=1.0, ge=0)
+    telegram_daily_summary_time: time = time(23, 0)
 
     @field_validator("operation_timezone")
     @classmethod

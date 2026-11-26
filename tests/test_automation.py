@@ -67,7 +67,7 @@ def test_monitoring_starts_due_execution_once_and_counts_pending_tasks(
     assert at_schedule.started_executions == 1
     assert at_schedule.pending_executions == 1
     assert at_schedule.pending_tasks == 2
-    assert at_schedule.notification_events == 0
+    assert at_schedule.notification_events == 1
 
     following_check = run_automation_check(
         session_factory, datetime(2026, 11, 25, 8, 1, tzinfo=timezone.utc)
@@ -118,9 +118,13 @@ def test_overdue_execution_emits_one_notification_and_survives_deactivation(
         events = list(session.scalars(select(NotificationLog)))
         assert len(executions) == 1
         assert executions[0].status is ExecutionStatus.OVERDUE
-        assert len(events) == 1
-        assert events[0].status == "pending"
-        assert "tarefa(s) obrigatória(s) pendente(s)" in events[0].message
+        assert len(events) == 2
+        overdue_events = [
+            event for event in events if event.notification_type == "overdue"
+        ]
+        assert len(overdue_events) == 1
+        assert overdue_events[0].status == "pending"
+        assert "Tarefas obrigatórias pendentes:" in overdue_events[0].message
 
 
 def test_scheduled_job_catches_failures_and_remains_callable(

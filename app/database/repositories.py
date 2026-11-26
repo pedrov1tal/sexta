@@ -1,9 +1,10 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.enums import ChecklistType, ExecutionStatus
+from app.domain.enums import NotificationType
 from app.database.models import (
     Checklist,
     ChecklistExecution,
@@ -220,9 +221,11 @@ def create_task_execution(
 def create_notification_log(
     session: Session,
     *,
-    execution_id: int,
+    execution_id: int | None,
     message: str,
     status: str,
+    notification_type: NotificationType,
+    event_key: str,
     sent_at: datetime | None = None,
     error_message: str | None = None,
 ) -> NotificationLog:
@@ -230,9 +233,121 @@ def create_notification_log(
         execution_id=execution_id,
         message=message,
         status=status,
+        notification_type=notification_type.value,
+        event_key=event_key,
         sent_at=sent_at,
         error_message=error_message,
     )
     session.add(notification)
     session.flush()
     return notification
+
+
+def get_notification_by_event_key(
+    session: Session, event_key: str
+) -> NotificationLog | None:
+    statement = select(NotificationLog).where(
+        NotificationLog.event_key == event_key
+    )
+    return session.scalar(statement)
+
+
+def has_deliverable_notifications(
+    session: Session, *, reclaim_before: datetime
+) -> bool:
+    statement = (
+        select(NotificationLog.id)
+        .where(
+            or_(
+                NotificationLog.status == "pending",
+                and_(
+                    NotificationLog.status == "sending",
+                    NotificationLog.updated_at < reclaim_before,
+                ),
+            )
+        )
+        .limit(1)
+    )
+    return session.scalar(statement) is not None
+
+
+def claim_next_notification(
+    session: Session,
+    *,
+    now: datetime,
+    reclaim_before: datetime,
+    exclude_ids: set[int] | None = None,
+) -> tuple[int, str, str, int] | None:
+    statement = (
+        select(NotificationLog.id)
+        .where(
+            or_(
+                NotificationLog.status == "pending",
+                and_(
+                    NotificationLog.status == "sending",
+                    NotificationLog.updated_at < reclaim_before,
+                ),
+            )
+        )
+        .order_by(NotificationLog.id)
+        .limit(1)
+    )
+    if exclude_ids:
+        statement = statement.where(NotificationLog.id.not_in(exclude_ids))
+    notification_id = session.scalar(statement)
+    if notification_id is None:
+        return None
+
+    claim = (
+        update(NotificationLog)
+        .where(
+            NotificationLog.id == notification_id,
+            or_(
+                NotificationLog.status == "pending",
+                and_(
+                    NotificationLog.status == "sending",
+                    NotificationLog.updated_at < reclaim_before,
+                ),
+            ),
+        )
+        .values(
+            status="sending",
+            attempt_count=NotificationLog.attempt_count + 1,
+            updated_at=now,
+        )
+    )
+    if session.execute(claim).rowcount != 1:
+        return None
+
+    notification = session.get(NotificationLog, notification_id)
+    if notification is None:
+        return None
+    return (
+        notification.id,
+        notification.event_key,
+        notification.message,
+        notification.attempt_count,
+    )
+
+
+def get_notification(session: Session, notification_id: int) -> NotificationLog | None:
+    return session.get(NotificationLog, notification_id)
+
+
+def update_notification_delivery(
+    session: Session,
+    notification_id: int,
+    *,
+    status: str,
+    now: datetime,
+    error_message: str | None = None,
+) -> bool:
+    notification = get_notification(session, notification_id)
+    if notification is None:
+        return False
+    notification.status = status
+    notification.sent_at = now if status == "sent" else None
+    notification.error_message = error_message
+    notification.updated_at = now
+    session.flush()
+    return True

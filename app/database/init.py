@@ -3,6 +3,7 @@ import logging
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.database.base import Base
 from app.database.session import engine
@@ -22,6 +23,7 @@ def initialize_database(database_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=database_engine)
     _migrate_updated_at_columns(database_engine)
     _migrate_unique_execution_date(database_engine)
+    _migrate_notification_log(database_engine)
 
 
 def _migrate_updated_at_columns(database_engine: Engine) -> None:
@@ -75,3 +77,89 @@ def _migrate_unique_execution_date(database_engine: Engine) -> None:
         raise RuntimeError(
             "O banco contém execuções duplicadas por checklist e data."
         ) from error
+
+
+def _migrate_notification_log(database_engine: Engine) -> None:
+    if database_engine.dialect.name != "sqlite":
+        return
+
+    from app.database.models import NotificationLog
+
+    inspector = inspect(database_engine)
+    if "notification_logs" not in inspector.get_table_names():
+        return
+    columns = {
+        column["name"]: column for column in inspector.get_columns("notification_logs")
+    }
+    required_columns = {
+        "notification_type",
+        "event_key",
+        "attempt_count",
+        "updated_at",
+    }
+    if (
+        required_columns.issubset(columns)
+        and columns["execution_id"]["nullable"]
+    ):
+        return
+
+    raw_connection = database_engine.raw_connection()
+    cursor = raw_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "ALTER TABLE notification_logs RENAME TO notification_logs_legacy"
+        )
+        cursor.execute(
+            str(CreateTable(NotificationLog.__table__).compile(
+                dialect=database_engine.dialect
+            ))
+        )
+        cursor.execute(
+            """
+            INSERT INTO notification_logs (
+                id,
+                execution_id,
+                message,
+                status,
+                notification_type,
+                event_key,
+                sent_at,
+                error_message,
+                attempt_count,
+                updated_at
+            )
+            SELECT
+                id,
+                execution_id,
+                message,
+                status,
+                'legacy',
+                'legacy:' || id,
+                sent_at,
+                error_message,
+                0,
+                COALESCE(sent_at, CURRENT_TIMESTAMP)
+            FROM notification_logs_legacy
+            """
+        )
+        cursor.execute("DROP TABLE notification_logs_legacy")
+        for index in NotificationLog.__table__.indexes:
+            cursor.execute(
+                str(CreateIndex(index).compile(dialect=database_engine.dialect))
+            )
+        violations = cursor.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(
+                "A migração do histórico de notificações encontrou "
+                "referências inválidas."
+            )
+        raw_connection.commit()
+    except Exception:
+        raw_connection.rollback()
+        logger.exception("Falha ao migrar a tabela de notificações.")
+        raise
+    finally:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        raw_connection.close()

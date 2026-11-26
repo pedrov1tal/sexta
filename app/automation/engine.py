@@ -20,6 +20,15 @@ from app.database.repositories import (
 )
 from app.domain.enums import ExecutionStatus
 from app.services.execution_service import refresh_execution_status
+from app.services.notification_service import (
+    queue_daily_summary,
+    queue_execution_completed,
+    queue_execution_started,
+)
+from app.services.telegram_service import (
+    TelegramClient,
+    deliver_pending_notifications,
+)
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Session]
@@ -34,12 +43,17 @@ class AutomationCheckSummary:
     pending_tasks: int = 0
     overdue_executions: int = 0
     notification_events: int = 0
+    notifications_sent: int = 0
+    notifications_retrying: int = 0
+    notifications_failed: int = 0
     skipped_without_tasks: int = 0
     errors: int = 0
 
 
 def run_automation_check(
-    session_factory: SessionFactory, now: datetime | None = None
+    session_factory: SessionFactory,
+    now: datetime | None = None,
+    telegram_client: TelegramClient | None = None,
 ) -> AutomationCheckSummary:
     checked_at = now or utc_now()
     if checked_at.tzinfo is None or checked_at.utcoffset() is None:
@@ -82,16 +96,40 @@ def run_automation_check(
                 session_factory, execution_id, checked_at, summary
             )
 
+    if local_now.timetz().replace(tzinfo=None) >= settings.telegram_daily_summary_time:
+        try:
+            with session_factory() as session:
+                with session.begin():
+                    if queue_daily_summary(session, local_now.date()):
+                        summary.notification_events += 1
+        except SQLAlchemyError:
+            logger.exception("Falha ao gerar o resumo diário de notificações.")
+            summary.errors += 1
+
+    delivery = deliver_pending_notifications(
+        session_factory,
+        now=checked_at,
+        telegram_client=telegram_client,
+    )
+    summary.notifications_sent = delivery.sent
+    summary.notifications_retrying = delivery.retrying
+    summary.notifications_failed = delivery.failed
+    summary.errors += delivery.errors
+
     logger.info(
         "Verificação concluída: checklists ativos=%d, execuções iniciadas=%d, "
         "execuções com pendências=%d, tarefas pendentes=%d, atrasadas=%d, "
-        "eventos=%d, ignoradas sem tarefas=%d, falhas=%d.",
+        "eventos=%d, notificações enviadas=%d, em nova tentativa=%d, "
+        "falhas definitivas=%d, ignoradas sem tarefas=%d, falhas=%d.",
         summary.active_checklists,
         summary.started_executions,
         summary.pending_executions,
         summary.pending_tasks,
         summary.overdue_executions,
         summary.notification_events,
+        summary.notifications_sent,
+        summary.notifications_retrying,
+        summary.notifications_failed,
         summary.skipped_without_tasks,
         summary.errors,
     )
@@ -152,6 +190,15 @@ def _start_due_execution(
                     execution_id=execution.id,
                     task_ids=[task.id for task in tasks],
                 )
+                if queue_execution_started(
+                    session, execution, settings.operation_timezone
+                ):
+                    summary.notification_events += 1
+                if execution.status is ExecutionStatus.COMPLETED:
+                    if queue_execution_completed(
+                        session, execution, settings.operation_timezone
+                    ):
+                        summary.notification_events += 1
                 execution_id = execution.id
         summary.started_executions += 1
         logger.info(

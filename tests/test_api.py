@@ -3,11 +3,14 @@ from datetime import datetime, time, timezone
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, settings
 from app.database.base import Base
+from app.database.models import NotificationLog
 from app.database.session import create_database_engine, get_db
+from app.domain.enums import NotificationType
 from app.main import app
 from app.services import execution_service
 
@@ -27,9 +30,11 @@ def client(tmp_path, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     test_client = TestClient(app)
+    test_client.app.state.test_engine = engine
     yield test_client
     test_client.close()
     app.dependency_overrides.clear()
+    del test_client.app.state.test_engine
     Base.metadata.drop_all(engine)
     engine.dispose()
 
@@ -227,6 +232,18 @@ def test_execution_task_completion_and_protected_history(
         f"/executions/{execution_id}", headers=AUTH_HEADERS
     ).json()["status"] == "completed"
     assert client.get("/executions", headers=AUTH_HEADERS).status_code == 200
+    with Session(client.app.state.test_engine) as session:
+        notification_types = list(
+            session.scalars(
+                select(NotificationLog.notification_type).order_by(
+                    NotificationLog.id
+                )
+            )
+        )
+    assert notification_types == [
+        NotificationType.CHECKLIST_STARTED.value,
+        NotificationType.CHECKLIST_COMPLETED.value,
+    ]
     assert client.patch(
         f"/executions/{execution_id}/tasks/{task_ids[1]}",
         headers=AUTH_HEADERS,
