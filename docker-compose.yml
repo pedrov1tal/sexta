@@ -51,5 +51,18 @@ services:
     volumes:
       - kitchencheck_data:/app/data
 
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   kitchencheck_data:
