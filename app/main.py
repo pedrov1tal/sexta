@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from app.api.routes.checklists import router as checklists_router
 from app.api.routes.executions import router as executions_router
@@ -47,3 +48,31 @@ async def resource_conflict_handler(
     _: Request, error: ResourceConflictError
 ) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(error)})
+
+
+@app.exception_handler(OperationalError)
+async def database_unavailable_handler(
+    _: Request, error: OperationalError
+) -> JSONResponse:
+    logger.error(
+        "Banco de dados indisponível durante uma requisição.",
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Banco de dados temporariamente indisponível."},
+    )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_error_handler(
+    _: Request, error: SQLAlchemyError
+) -> JSONResponse:
+    logger.error(
+        "Falha ao executar operação no banco de dados.",
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Falha ao processar a operação no banco de dados."},
+    )

@@ -61,7 +61,9 @@ def test_telegram_client_uses_https_and_retries_temporary_http_errors(
     responses = iter(
         [
             httpx.Response(503, json={"ok": False}),
-            httpx.Response(200, json={"ok": True, "result": {}}),
+            httpx.Response(
+                200, json={"ok": True, "result": {"message_id": 101}}
+            ),
         ]
     )
     requests = []
@@ -69,7 +71,7 @@ def test_telegram_client_uses_https_and_retries_temporary_http_errors(
         lambda request: requests.append(request) or next(responses)
     )
     try:
-        client.send_message("Mensagem de teste")
+        assert client.send_message("Mensagem de teste") == 101
     finally:
         client.close()
 
@@ -88,7 +90,9 @@ def test_outbox_sends_once_and_persists_delivery(session_factory) -> None:
     def handler(_request):
         nonlocal request_count
         request_count += 1
-        return httpx.Response(200, json={"ok": True, "result": {}})
+        return httpx.Response(
+            200, json={"ok": True, "result": {"message_id": 101}}
+        )
 
     client = make_client(handler)
     now = datetime(2026, 11, 25, 23, 0, tzinfo=timezone.utc)
@@ -113,6 +117,7 @@ def test_outbox_sends_once_and_persists_delivery(session_factory) -> None:
     assert notification.status == "sent"
     assert notification.sent_at == now
     assert notification.attempt_count == 1
+    assert notification.telegram_message_id == 101
 
 
 def test_temporary_failure_is_retried_on_next_automation_cycle(
@@ -131,7 +136,9 @@ def test_temporary_failure_is_retried_on_next_automation_cycle(
         failing_client.close()
 
     successful_client = make_client(
-        lambda _request: httpx.Response(200, json={"ok": True, "result": {}}),
+        lambda _request: httpx.Response(
+            200, json={"ok": True, "result": {"message_id": 102}}
+        ),
         attempts=1,
     )
     try:
@@ -152,6 +159,7 @@ def test_temporary_failure_is_retried_on_next_automation_cycle(
     assert notification.status == "sent"
     assert notification.attempt_count == 2
     assert notification.error_message is None
+    assert notification.telegram_message_id == 102
     assert "test-token-never-log" not in caplog.text
 
 

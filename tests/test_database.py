@@ -203,10 +203,29 @@ def test_notification_log_migration_preserves_existing_history(tmp_path) -> None
         notification = session.get(NotificationLog, 17)
 
     assert columns["execution_id"]["nullable"] is True
+    assert columns["telegram_message_id"]["nullable"] is True
     assert notification is not None
     assert notification.message == "Registro legado"
     assert notification.notification_type == "legacy"
     assert notification.event_key == "legacy:17"
     assert notification.error_message == "erro anterior"
     assert notification.attempt_count == 0
+    assert notification.telegram_message_id is None
+    engine.dispose()
+
+
+def test_sqlite_engine_uses_wal_and_waits_for_locked_writes(tmp_path) -> None:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'wal.db'}")
+    initialize_database(engine)
+
+    with engine.connect() as connection:
+        journal_mode = connection.exec_driver_sql(
+            "PRAGMA journal_mode"
+        ).scalar_one()
+        busy_timeout = connection.exec_driver_sql(
+            "PRAGMA busy_timeout"
+        ).scalar_one()
+
+    assert journal_mode.lower() == "wal"
+    assert busy_timeout >= 30_000
     engine.dispose()

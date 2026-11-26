@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, settings
@@ -73,6 +74,28 @@ def test_resource_routes_require_api_key(client: TestClient, monkeypatch) -> Non
     response = client.get("/checklists", headers=AUTH_HEADERS)
     assert response.status_code == 503
     assert API_KEY not in response.text
+
+
+def test_database_lock_returns_sanitized_service_unavailable(
+    client: TestClient,
+) -> None:
+    def unavailable_database():
+        raise OperationalError(
+            "SELECT * FROM checklists",
+            {},
+            RuntimeError("database is locked"),
+        )
+        yield
+
+    app.dependency_overrides[get_db] = unavailable_database
+    response = client.get("/checklists", headers=AUTH_HEADERS)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Banco de dados temporariamente indisponível."
+    }
+    assert "database is locked" not in response.text
+    assert "SELECT * FROM checklists" not in response.text
 
 
 def test_checklist_and_task_crud_and_validation(client: TestClient) -> None:

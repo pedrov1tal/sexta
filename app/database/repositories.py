@@ -341,6 +341,7 @@ def update_notification_delivery(
     status: str,
     now: datetime,
     error_message: str | None = None,
+    telegram_message_id: int | None = None,
 ) -> bool:
     notification = get_notification(session, notification_id)
     if notification is None:
@@ -348,6 +349,7 @@ def update_notification_delivery(
     notification.status = status
     notification.sent_at = now if status == "sent" else None
     notification.error_message = error_message
+    notification.telegram_message_id = telegram_message_id
     notification.updated_at = now
     session.flush()
     return True

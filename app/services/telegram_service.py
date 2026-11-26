@@ -64,7 +64,7 @@ class TelegramClient:
     def close(self) -> None:
         self._client.close()
 
-    def send_message(self, message: str) -> None:
+    def send_message(self, message: str) -> int:
         last_error: TelegramDeliveryError | None = None
         for attempt in range(self._max_attempts):
             try:
@@ -89,15 +89,28 @@ class TelegramClient:
                     payload = response.json()
                 except ValueError as error:
                     raise TelegramDeliveryError(
-                        "Telegram retornou uma resposta inválida.",
-                        retryable=True,
+                        "Telegram retornou uma resposta inválida após o envio; "
+                        "a entrega precisa ser verificada.",
+                        retryable=False,
                     ) from error
                 if not isinstance(payload, dict) or payload.get("ok") is not True:
                     raise TelegramDeliveryError(
                         "Telegram rejeitou a mensagem.",
                         retryable=False,
                     )
-                return
+                result = payload.get("result")
+                message_id = (
+                    result.get("message_id")
+                    if isinstance(result, dict)
+                    else None
+                )
+                if type(message_id) is not int:
+                    raise TelegramDeliveryError(
+                        "Telegram aceitou a mensagem sem retornar um ID; "
+                        "a entrega precisa ser verificada.",
+                        retryable=False,
+                    )
+                return message_id
             except (httpx.TimeoutException, httpx.TransportError) as error:
                 last_error = TelegramDeliveryError(
                     f"Falha de comunicação com o Telegram ({type(error).__name__}).",
@@ -183,7 +196,7 @@ def deliver_pending_notifications(
             notification_id, event_key, message, attempt_count = notification
             attempted_ids.add(notification_id)
             try:
-                telegram_client.send_message(message)
+                telegram_message_id = telegram_client.send_message(message)
             except TelegramDeliveryError as error:
                 status = "pending" if error.retryable else "failed"
                 if not _finish_notification(
@@ -233,6 +246,7 @@ def deliver_pending_notifications(
                     status="sent",
                     now=checked_at,
                     error_message=None,
+                    telegram_message_id=telegram_message_id,
                     summary=summary,
                 ):
                     summary.sent += 1
@@ -274,6 +288,7 @@ def _finish_notification(
     now: datetime,
     error_message: str | None,
     summary: NotificationDeliverySummary,
+    telegram_message_id: int | None = None,
 ) -> bool:
     try:
         with session_factory() as session:
@@ -284,6 +299,7 @@ def _finish_notification(
                     status=status,
                     now=now,
                     error_message=error_message,
+                    telegram_message_id=telegram_message_id,
                 )
     except SQLAlchemyError:
         logger.exception(

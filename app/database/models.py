@@ -226,6 +226,9 @@ class NotificationLog(Base):
         UTCDateTime(), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     attempt_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )

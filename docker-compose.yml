@@ -2,6 +2,7 @@ services:
   api:
     build: .
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
@@ -30,6 +31,7 @@ services:
   automation:
     build: .
     command: ["python", "-m", "app.automation"]
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy

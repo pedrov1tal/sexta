@@ -20,10 +20,23 @@ logger = logging.getLogger(__name__)
 def initialize_database(database_engine: Engine = engine) -> None:
     from app.database import models  # noqa: F401
 
+    _enable_sqlite_wal(database_engine)
     Base.metadata.create_all(bind=database_engine)
     _migrate_updated_at_columns(database_engine)
     _migrate_unique_execution_date(database_engine)
     _migrate_notification_log(database_engine)
+
+
+def _enable_sqlite_wal(database_engine: Engine) -> None:
+    if database_engine.dialect.name != "sqlite":
+        return
+
+    with database_engine.connect() as connection:
+        journal_mode = connection.exec_driver_sql(
+            "PRAGMA journal_mode=WAL"
+        ).scalar_one()
+    if str(journal_mode).lower() not in ("wal", "memory"):
+        raise RuntimeError("Não foi possível habilitar o modo WAL do SQLite.")
 
 
 def _migrate_updated_at_columns(database_engine: Engine) -> None:
@@ -96,6 +109,7 @@ def _migrate_notification_log(database_engine: Engine) -> None:
         "event_key",
         "attempt_count",
         "updated_at",
+        "telegram_message_id",
     }
     if (
         required_columns.issubset(columns)
@@ -128,7 +142,8 @@ def _migrate_notification_log(database_engine: Engine) -> None:
                 sent_at,
                 error_message,
                 attempt_count,
-                updated_at
+                updated_at,
+                telegram_message_id
             )
             SELECT
                 id,
@@ -140,7 +155,8 @@ def _migrate_notification_log(database_engine: Engine) -> None:
                 sent_at,
                 error_message,
                 0,
-                COALESCE(sent_at, CURRENT_TIMESTAMP)
+                COALESCE(sent_at, CURRENT_TIMESTAMP),
+                NULL
             FROM notification_logs_legacy
             """
         )
