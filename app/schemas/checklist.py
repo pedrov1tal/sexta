@@ -20,6 +20,17 @@ class ChecklistFields(BaseModel):
             raise ValueError("O título não pode ficar vazio.")
         return title
 
+    @field_validator("scheduled_time", "deadline")
+    @classmethod
+    def schedule_times_must_be_local_wall_times(
+        cls, value: time | None
+    ) -> time | None:
+        if value is not None and value.utcoffset() is not None:
+            raise ValueError(
+                "Horários do checklist devem ser informados sem offset UTC."
+            )
+        return value
+
 
 class ChecklistCreate(ChecklistFields):
     is_active: bool = True
@@ -57,6 +68,7 @@ class TaskRead(BaseModel):
     description: str | None
     is_required: bool
     position: int
+    updated_at: datetime
 
 
 class ChecklistRead(BaseModel):
@@ -70,4 +82,5 @@ class ChecklistRead(BaseModel):
     deadline: time | None
     is_active: bool
     created_at: datetime
+    updated_at: datetime
     tasks: list[TaskRead]

@@ -4,7 +4,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     Enum as SqlEnum,
     ForeignKey,
     Index,
@@ -18,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.database.types import UTCDateTime
 from app.domain.enums import ChecklistType, ExecutionStatus
 
 
@@ -52,7 +52,14 @@ class Checklist(Base):
         Boolean, nullable=False, default=True, server_default=text("1")
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     tasks: Mapped[list["Task"]] = relationship(
@@ -86,6 +93,13 @@ class Task(Base):
         Boolean, nullable=False, default=True, server_default=text("1")
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
     checklist: Mapped["Checklist"] = relationship(back_populates="tasks")
     task_executions: Mapped[list["TaskExecution"]] = relationship(
@@ -120,10 +134,17 @@ class ChecklistExecution(Base):
         server_default=ExecutionStatus.PENDING.value,
     )
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     checklist: Mapped["Checklist"] = relationship(back_populates="executions")
@@ -159,7 +180,14 @@ class TaskExecution(Base):
         Boolean, nullable=False, default=False, server_default=text("0")
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     execution: Mapped["ChecklistExecution"] = relationship(
@@ -183,7 +211,7 @@ class NotificationLog(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

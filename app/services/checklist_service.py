@@ -88,6 +88,11 @@ def update_task_record(
             task = get_task(session, task_id)
             if task is None:
                 raise ResourceNotFoundError("Tarefa não encontrada.")
+            if task.task_executions and task.is_required != data.is_required:
+                raise ResourceConflictError(
+                    "Não é possível alterar a obrigatoriedade de uma tarefa "
+                    "que já possui histórico de execução."
+                )
             for field, value in data.model_dump().items():
                 setattr(task, field, value)
     except IntegrityError as error:

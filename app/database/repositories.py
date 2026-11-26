@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.domain.enums import ChecklistType, ExecutionStatus
 from app.database.models import (
@@ -47,7 +47,17 @@ def get_task(session: Session, task_id: int) -> Task | None:
 def get_checklist_execution(
     session: Session, execution_id: int
 ) -> ChecklistExecution | None:
-    return session.get(ChecklistExecution, execution_id)
+    statement = (
+        select(ChecklistExecution)
+        .options(
+            selectinload(ChecklistExecution.checklist),
+            selectinload(ChecklistExecution.task_executions).selectinload(
+                TaskExecution.task
+            ),
+        )
+        .where(ChecklistExecution.id == execution_id)
+    )
+    return session.scalar(statement)
 
 
 def get_task_execution(
@@ -83,6 +93,12 @@ def list_checklist_executions(
 ) -> list[ChecklistExecution]:
     statement = (
         select(ChecklistExecution)
+        .options(
+            selectinload(ChecklistExecution.checklist),
+            selectinload(ChecklistExecution.task_executions).selectinload(
+                TaskExecution.task
+            ),
+        )
         .order_by(ChecklistExecution.execution_date.desc(), ChecklistExecution.id.desc())
         .offset(skip)
         .limit(limit)
@@ -131,6 +147,7 @@ def create_checklist_execution(
     status: ExecutionStatus = ExecutionStatus.PENDING,
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
+    updated_at: datetime | None = None,
 ) -> ChecklistExecution:
     execution = ChecklistExecution(
         checklist_id=checklist_id,
@@ -138,6 +155,7 @@ def create_checklist_execution(
         status=status,
         started_at=started_at,
         completed_at=completed_at,
+        updated_at=updated_at,
     )
     session.add(execution)
     session.flush()

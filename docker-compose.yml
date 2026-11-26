@@ -10,6 +10,7 @@ services:
       DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
+      OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
     volumes:
       - kitchencheck_data:/app/data
     healthcheck:
@@ -33,6 +34,7 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:-development}"
       DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
     volumes:
       - kitchencheck_data:/app/data
 
