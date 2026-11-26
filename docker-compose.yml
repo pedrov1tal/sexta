@@ -1,0 +1,39 @@
+services:
+  api:
+    build: .
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      APP_NAME: "${APP_NAME:-KitchenCheck}"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
+      DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      - kitchencheck_data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  automation:
+    build: .
+    command: ["python", "-m", "app.automation"]
+    environment:
+      APP_NAME: "${APP_NAME:-KitchenCheck}"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
+      DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      - kitchencheck_data:/app/data
+
+volumes:
+  kitchencheck_data:
