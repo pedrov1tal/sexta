@@ -9,6 +9,7 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:-development}"
       DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
     volumes:
       - kitchencheck_data:/app/data
     healthcheck:
