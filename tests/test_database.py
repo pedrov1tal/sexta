@@ -119,3 +119,24 @@ def test_checklist_cannot_be_deleted_while_execution_exists(database_engine) -> 
         with pytest.raises(IntegrityError):
             session.flush()
         session.rollback()
+
+
+def test_only_one_execution_per_checklist_and_date(database_engine) -> None:
+    with Session(database_engine) as session:
+        checklist = create_checklist(
+            session, title="Abertura", checklist_type=ChecklistType.OPENING
+        )
+        create_checklist_execution(
+            session,
+            checklist_id=checklist.id,
+            execution_date=date(2026, 11, 25),
+        )
+        session.commit()
+
+        with pytest.raises(IntegrityError):
+            create_checklist_execution(
+                session,
+                checklist_id=checklist.id,
+                execution_date=date(2026, 11, 25),
+            )
+        session.rollback()

@@ -111,7 +111,12 @@ class Task(Base):
 class ChecklistExecution(Base):
     __tablename__ = "checklist_executions"
     __table_args__ = (
-        Index("ix_executions_checklist_date", "checklist_id", "execution_date"),
+        Index(
+            "uq_checklist_execution_date",
+            "checklist_id",
+            "execution_date",
+            unique=True,
+        ),
         Index("ix_executions_status", "status"),
     )
 

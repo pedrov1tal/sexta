@@ -60,6 +60,16 @@ def get_checklist_execution(
     return session.scalar(statement)
 
 
+def get_checklist_execution_for_date(
+    session: Session, checklist_id: int, execution_date: date
+) -> ChecklistExecution | None:
+    statement = select(ChecklistExecution).where(
+        ChecklistExecution.checklist_id == checklist_id,
+        ChecklistExecution.execution_date == execution_date,
+    )
+    return session.scalar(statement)
+
+
 def get_task_execution(
     session: Session, execution_id: int, task_id: int
 ) -> TaskExecution | None:
@@ -68,6 +78,32 @@ def get_task_execution(
         TaskExecution.task_id == task_id,
     )
     return session.scalar(statement)
+
+
+def list_active_checklist_ids(session: Session) -> list[int]:
+    statement = (
+        select(Checklist.id)
+        .where(Checklist.is_active.is_(True))
+        .order_by(Checklist.id)
+    )
+    return list(session.scalars(statement).all())
+
+
+def list_open_execution_ids(session: Session) -> list[int]:
+    statement = (
+        select(ChecklistExecution.id)
+        .where(
+            ChecklistExecution.status.in_(
+                (
+                    ExecutionStatus.PENDING,
+                    ExecutionStatus.IN_PROGRESS,
+                    ExecutionStatus.OVERDUE,
+                )
+            )
+        )
+        .order_by(ChecklistExecution.id)
+    )
+    return list(session.scalars(statement).all())
 
 
 def list_checklists(

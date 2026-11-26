@@ -173,6 +173,9 @@ def test_execution_task_completion_and_protected_history(
     assert len(execution["task_executions"]) == 2
     assert execution["completion_percentage"] == 0
     assert execution["is_incomplete"] is True
+    assert client.post(
+        f"/checklists/{checklist_id}/executions", headers=AUTH_HEADERS
+    ).status_code == 409
     assert client.put(
         f"/checklists/{checklist_id}",
         headers=AUTH_HEADERS,

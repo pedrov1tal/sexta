@@ -1,6 +1,6 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     admin_api_key: SecretStr = SecretStr("")
     operation_timezone: str = "America/Sao_Paulo"
+    automation_interval_minutes: int = Field(default=1, ge=1)
 
     @field_validator("operation_timezone")
     @classmethod

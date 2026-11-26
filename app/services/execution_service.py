@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -8,9 +9,11 @@ from app.database.models import ChecklistExecution, utc_now
 from app.domain.enums import ExecutionStatus
 from app.database.repositories import (
     create_checklist_execution,
+    create_notification_log,
     create_task_executions,
     get_checklist,
     get_checklist_execution,
+    get_checklist_execution_for_date,
     get_task_execution,
     list_checklist_executions,
 )
@@ -20,42 +23,55 @@ from app.services.exceptions import ResourceConflictError, ResourceNotFoundError
 def start_checklist_execution(
     session: Session, checklist_id: int
 ) -> ChecklistExecution:
-    with session.begin():
-        checklist = get_checklist(session, checklist_id)
-        if checklist is None:
-            raise ResourceNotFoundError("Checklist não encontrado.")
-        if not checklist.is_active:
-            raise ResourceConflictError(
-                "Não é possível iniciar um checklist inativo."
-            )
-        tasks = list(checklist.tasks)
-        if not tasks:
-            raise ResourceConflictError(
-                "Adicione ao menos uma tarefa antes de iniciar a execução."
-            )
+    try:
+        with session.begin():
+            checklist = get_checklist(session, checklist_id)
+            if checklist is None:
+                raise ResourceNotFoundError("Checklist não encontrado.")
+            if not checklist.is_active:
+                raise ResourceConflictError(
+                    "Não é possível iniciar um checklist inativo."
+                )
+            tasks = list(checklist.tasks)
+            if not tasks:
+                raise ResourceConflictError(
+                    "Adicione ao menos uma tarefa antes de iniciar a execução."
+                )
 
-        started_at = utc_now()
-        operation_timezone = ZoneInfo(settings.operation_timezone)
-        required_tasks = [task for task in tasks if task.is_required]
-        execution = create_checklist_execution(
-            session,
-            checklist_id=checklist.id,
-            execution_date=started_at.astimezone(operation_timezone).date(),
-            status=(
-                ExecutionStatus.IN_PROGRESS
-                if required_tasks
-                else ExecutionStatus.COMPLETED
-            ),
-            started_at=started_at,
-            completed_at=None if required_tasks else started_at,
-            updated_at=started_at,
-        )
-        create_task_executions(
-            session,
-            execution_id=execution.id,
-            task_ids=[task.id for task in tasks],
-        )
-        refresh_execution_status(execution, started_at)
+            started_at = utc_now()
+            operation_timezone = ZoneInfo(settings.operation_timezone)
+            execution_date = started_at.astimezone(operation_timezone).date()
+            if get_checklist_execution_for_date(
+                session, checklist.id, execution_date
+            ):
+                raise ResourceConflictError(
+                    "Já existe uma execução desse checklist nesta data."
+                )
+
+            required_tasks = [task for task in tasks if task.is_required]
+            execution = create_checklist_execution(
+                session,
+                checklist_id=checklist.id,
+                execution_date=execution_date,
+                status=(
+                    ExecutionStatus.IN_PROGRESS
+                    if required_tasks
+                    else ExecutionStatus.COMPLETED
+                ),
+                started_at=started_at,
+                completed_at=None if required_tasks else started_at,
+                updated_at=started_at,
+            )
+            create_task_executions(
+                session,
+                execution_id=execution.id,
+                task_ids=[task.id for task in tasks],
+            )
+            refresh_execution_status(session, execution, started_at)
+    except IntegrityError as error:
+        raise ResourceConflictError(
+            "Já existe uma execução desse checklist nesta data."
+        ) from error
     return execution
 
 
@@ -66,7 +82,7 @@ def list_execution_records(
     with session.begin():
         executions = list_checklist_executions(session, skip=skip, limit=limit)
         for execution in executions:
-            refresh_execution_status(execution, now)
+            refresh_execution_status(session, execution, now)
     return executions
 
 
@@ -77,15 +93,15 @@ def get_execution_record(
         execution = get_checklist_execution(session, execution_id)
         if execution is None:
             raise ResourceNotFoundError("Execução não encontrada.")
-        refresh_execution_status(execution, utc_now())
+        refresh_execution_status(session, execution, utc_now())
     return execution
 
 
 def refresh_execution_status(
-    execution: ChecklistExecution, now: datetime
-) -> None:
+    session: Session, execution: ChecklistExecution, now: datetime
+) -> bool:
     if execution.status is ExecutionStatus.COMPLETED:
-        return
+        return False
 
     task_executions = list(execution.task_executions)
     required_executions = [
@@ -100,7 +116,7 @@ def refresh_execution_status(
         execution.status = ExecutionStatus.COMPLETED
         execution.completed_at = now
         execution.updated_at = now
-        return
+        return False
 
     deadline = _execution_deadline(execution)
     if (
@@ -110,6 +126,21 @@ def refresh_execution_status(
     ):
         execution.status = ExecutionStatus.OVERDUE
         execution.updated_at = now
+        pending_required = sum(
+            not task_execution.is_completed and task_execution.task.is_required
+            for task_execution in task_executions
+        )
+        create_notification_log(
+            session,
+            execution_id=execution.id,
+            message=(
+                f"Execução atrasada do checklist '{execution.checklist.title}': "
+                f"{pending_required} tarefa(s) obrigatória(s) pendente(s)."
+            ),
+            status="pending",
+        )
+        return True
+    return False
 
 
 def _execution_deadline(execution: ChecklistExecution) -> datetime | None:
@@ -146,7 +177,7 @@ def complete_execution_task(
         if execution.status is ExecutionStatus.COMPLETED:
             raise ResourceConflictError("A execução já foi concluída.")
         now = utc_now()
-        refresh_execution_status(execution, now)
+        refresh_execution_status(session, execution, now)
         if not task_execution.is_completed:
             task_execution.is_completed = True
             task_execution.completed_at = now
