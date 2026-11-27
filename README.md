@@ -192,5 +192,5 @@ As rotas abaixo, exceto `/health`, exigem o cabeçalho `X-API-Key`.
 | `PUT` / `DELETE` | `/tasks/{id}` | Atualizar e excluir tarefa |
 | `POST` | `/checklists/{id}/executions` | Iniciar execução |
 | `GET` | `/executions` | Listar execuções (`skip` e `limit`) |
-| `GET` | `/executions/{id}` | Consultar execução |
-| `PATCH` | `/executions/{id}/tasks/{task_id}` | Marcar tarefa como concluída |
+| `GET` | `/executions/{id}` | Consultar execução | -
+| `PATCH` | `/executions/{id}/tasks/{task_id}` | Marcar tarefa como concluída | -
