@@ -1,11 +1,9 @@
 from datetime import date, datetime, time, timezone
-from enum import Enum
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     Enum as SqlEnum,
     ForeignKey,
     Index,
@@ -19,23 +17,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.database.types import UTCDateTime
+from app.domain.enums import ChecklistType, ExecutionStatus
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class ChecklistType(str, Enum):
-    OPENING = "opening"
-    OPERATION = "operation"
-    CLOSING = "closing"
-
-
-class ExecutionStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    OVERDUE = "overdue"
 
 
 class Checklist(Base):
@@ -65,7 +52,14 @@ class Checklist(Base):
         Boolean, nullable=False, default=True, server_default=text("1")
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now
+        UTCDateTime(), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     tasks: Mapped[list["Task"]] = relationship(
@@ -99,6 +93,13 @@ class Task(Base):
         Boolean, nullable=False, default=True, server_default=text("1")
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
     checklist: Mapped["Checklist"] = relationship(back_populates="tasks")
     task_executions: Mapped[list["TaskExecution"]] = relationship(
@@ -110,7 +111,12 @@ class Task(Base):
 class ChecklistExecution(Base):
     __tablename__ = "checklist_executions"
     __table_args__ = (
-        Index("ix_executions_checklist_date", "checklist_id", "execution_date"),
+        Index(
+            "uq_checklist_execution_date",
+            "checklist_id",
+            "execution_date",
+            unique=True,
+        ),
         Index("ix_executions_status", "status"),
     )
 
@@ -133,10 +139,17 @@ class ChecklistExecution(Base):
         server_default=ExecutionStatus.PENDING.value,
     )
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     checklist: Mapped["Checklist"] = relationship(back_populates="executions")
@@ -172,7 +185,14 @@ class TaskExecution(Base):
         Boolean, nullable=False, default=False, server_default=text("0")
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     execution: Mapped["ChecklistExecution"] = relationship(
@@ -186,20 +206,40 @@ class NotificationLog(Base):
     __table_args__ = (
         CheckConstraint("length(trim(message)) > 0", name="message_not_empty"),
         CheckConstraint("length(trim(status)) > 0", name="status_not_empty"),
+        CheckConstraint(
+            "length(trim(notification_type)) > 0", name="notification_type_not_empty"
+        ),
+        CheckConstraint("length(trim(event_key)) > 0", name="event_key_not_empty"),
+        UniqueConstraint("event_key", name="uq_notification_logs_event_key"),
         Index("ix_notification_logs_execution_status", "execution_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    execution_id: Mapped[int] = mapped_column(
-        ForeignKey("checklist_executions.id", ondelete="CASCADE"), nullable=False
+    execution_id: Mapped[int | None] = mapped_column(
+        ForeignKey("checklist_executions.id", ondelete="CASCADE"), nullable=True
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_key: Mapped[str] = mapped_column(String(200), nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
-    execution: Mapped["ChecklistExecution"] = relationship(
+    execution: Mapped["ChecklistExecution | None"] = relationship(
         back_populates="notification_logs"
     )

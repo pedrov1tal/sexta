@@ -7,11 +7,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 
+SQLITE_BUSY_TIMEOUT_SECONDS = 30
+
 
 def create_database_engine(database_url: str) -> Engine:
     url = make_url(database_url)
     connect_args = (
-        {"check_same_thread": False}
+        {
+            "check_same_thread": False,
+            "timeout": SQLITE_BUSY_TIMEOUT_SECONDS,
+        }
         if url.get_backend_name() == "sqlite"
         else {}
     )
@@ -30,6 +35,9 @@ def create_database_engine(database_url: str) -> Engine:
         def enable_sqlite_foreign_keys(connection, _connection_record) -> None:
             cursor = connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute(
+                f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_SECONDS * 1000}"
+            )
             cursor.close()
 
     return database_engine

@@ -2,6 +2,7 @@ services:
   api:
     build: .
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
@@ -9,6 +10,9 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:-development}"
       DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
+      OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
+      AUTOMATION_INTERVAL_MINUTES: "${AUTOMATION_INTERVAL_MINUTES:-1}"
     volumes:
       - kitchencheck_data:/app/data
     healthcheck:
@@ -27,13 +31,38 @@ services:
   automation:
     build: .
     command: ["python", "-m", "app.automation"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
     environment:
       APP_NAME: "${APP_NAME:-KitchenCheck}"
       ENVIRONMENT: "${ENVIRONMENT:-development}"
       DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kitchencheck.db}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
+      AUTOMATION_INTERVAL_MINUTES: "${AUTOMATION_INTERVAL_MINUTES:-1}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
+      TELEGRAM_REQUEST_TIMEOUT_SECONDS: "${TELEGRAM_REQUEST_TIMEOUT_SECONDS:-10}"
+      TELEGRAM_RETRY_ATTEMPTS: "${TELEGRAM_RETRY_ATTEMPTS:-3}"
+      TELEGRAM_RETRY_DELAY_SECONDS: "${TELEGRAM_RETRY_DELAY_SECONDS:-1}"
+      TELEGRAM_DAILY_SUMMARY_TIME: "${TELEGRAM_DAILY_SUMMARY_TIME:-23:00}"
     volumes:
       - kitchencheck_data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_OPERATION_TIMEZONE: "${OPERATION_TIMEZONE:-America/Sao_Paulo}"
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   kitchencheck_data:
